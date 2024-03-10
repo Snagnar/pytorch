@@ -274,12 +274,21 @@ class GradScaler:
                     ].append(to_unscale)
 
             for device, per_dtype_grads in per_device_and_dtype_grads.items():
-                for grads in per_dtype_grads.values():
-                    torch._amp_foreach_non_finite_check_and_unscale_(
-                        grads,
-                        per_device_found_inf.get(device),
-                        per_device_inv_scale.get(device),
-                    )
+                for dtype, grads in per_dtype_grads.items():
+                    if dtype in [torch.complex32, torch.complex64, torch.complex128]:
+                        found_infs = per_device_found_inf.get(device)
+                        inv_scale = per_device_inv_scale.get(device)
+                        if not all(torch.all(torch.isfinite(grad)) for grad in grads):
+                            found_infs.fill_(1.0)
+                        if inv_scale.item() != 1.0:
+                            for grad in grads:
+                                grad.mul_(inv_scale)
+                    else:
+                        torch._amp_foreach_non_finite_check_and_unscale_(
+                            grads,
+                            per_device_found_inf.get(device),
+                            per_device_inv_scale.get(device),
+                        )
 
         return per_device_found_inf._per_device_tensors
 
